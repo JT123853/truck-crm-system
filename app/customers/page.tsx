@@ -1,206 +1,288 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { supabase } from '@/utils/supabase/client'
-import Link from 'next/link'
+import { useState, useEffect } from 'react';
+import { supabase } from '@/utils/supabase/client';
 
 export default function CustomersPage() {
-  const [customers, setCustomers] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
   
-  // State cho form thêm khách hàng (Đã bổ sung phone và notes)
-  const [showAddForm, setShowAddForm] = useState(false)
+  // TÍNH NĂNG MỚI: State Phân trang (Pagination)
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10; // Giới hạn hiển thị 10 khách hàng / 1 trang
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
-    full_name: '',
-    phone: '',
-    cccd: '',
-    dob: '',
-    address: '',
-    notes: '',
-    customer_status: 'Tiềm năng'
-  })
+    full_name: '', phone: '', cccd: '', dob: '', address: '', notes: '', customer_status: 'Tiềm năng'
+  });
+
+  async function fetchCustomers() {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+      if (error) throw error;
+      if (data) setCustomers(data);
+    } catch (error) {
+      console.error('Lỗi tải dữ liệu:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    fetchCustomers()
-  }, [])
+    fetchCustomers();
+  }, []);
 
-  const fetchCustomers = async () => {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('customers')
-      .select('*')
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.error('Lỗi khi tải khách hàng:', error)
-    } else {
-      setCustomers(data || [])
-    }
-    setLoading(false)
-  }
+  // TÍNH NĂNG MỚI: Đưa trang về 1 mỗi khi gõ từ khóa tìm kiếm
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value })
-  }
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
 
-  const handleAddCustomer = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const { data, error } = await supabase
-      .from('customers')
-      .insert([
-        {
-          full_name: formData.full_name,
-          phone: formData.phone,
-          cccd: formData.cccd,
-          dob: formData.dob || null,
-          address: formData.address,
-          notes: formData.notes,
-          customer_status: formData.customer_status
-        }
-      ])
-
-    if (error) {
-      alert('Có lỗi xảy ra khi thêm khách hàng! Vui lòng kiểm tra lại.')
-      console.error(error)
-    } else {
-      alert('Đã thêm khách hàng thành công!')
-      setFormData({ full_name: '', phone: '', cccd: '', dob: '', address: '', notes: '', customer_status: 'Tiềm năng' })
-      setShowAddForm(false)
-      fetchCustomers() // Tải lại danh sách
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    
+    try {
+      if (editingId) {
+        const { error } = await supabase.from('customers').update({
+          full_name: formData.full_name, phone: formData.phone, cccd: formData.cccd,
+          dob: formData.dob || null, address: formData.address, notes: formData.notes, customer_status: formData.customer_status
+        }).eq('id', editingId);
+        if (error) throw error;
+        alert('Cập nhật thành công!');
+      } else {
+        const { error } = await supabase.from('customers').insert([{
+          full_name: formData.full_name, phone: formData.phone, cccd: formData.cccd,
+          dob: formData.dob || null, address: formData.address, notes: formData.notes, customer_status: formData.customer_status
+        }]);
+        if (error) throw error;
+        alert('Đã thêm mới thành công!');
+      }
+      cancelEdit();
+      fetchCustomers();
+    } catch (error: any) {
+      alert('Lỗi: ' + error.message);
+    } finally {
+      setIsSubmitting(false);
     }
-  }
+  };
 
-  // Lọc khách hàng (Tìm theo Tên, Số điện thoại, hoặc CCCD)
+  const handleEditClick = (customer: any) => {
+    setEditingId(customer.id);
+    setFormData({
+      full_name: customer.full_name || '', phone: customer.phone || '', cccd: customer.cccd || '',
+      dob: customer.dob || '', address: customer.address || '', notes: customer.notes || '', customer_status: customer.customer_status || 'Tiềm năng'
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setFormData({ full_name: '', phone: '', cccd: '', dob: '', address: '', notes: '', customer_status: 'Tiềm năng' });
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!window.confirm(`Xóa khách hàng "${name}"?`)) return;
+    try {
+      const { error } = await supabase.from('customers').delete().eq('id', id);
+      if (error) {
+        if (error.code === '23503') throw new Error('Khách này đã có hợp đồng. Không thể xóa!');
+        throw error;
+      }
+      fetchCustomers();
+    } catch (error: any) {
+      alert(error.message);
+    }
+  };
+
+  // TÍNH NĂNG MỚI: Xuất dữ liệu ra Excel (File CSV)
+  const exportToExcel = () => {
+    // 1. Tạo tiêu đề cột
+    const headers = ['Họ và Tên', 'Số điện thoại', 'CCCD', 'Ngày sinh', 'Địa chỉ', 'Ghi chú', 'Trạng thái'];
+    
+    // 2. Chuyển đổi dữ liệu (chỉ xuất các khách hàng đang được lọc/tìm kiếm)
+    const rows = filteredCustomers.map(c => [
+      `"${c.full_name}"`, // Đặt trong ngoặc kép để tránh lỗi dấu phẩy trong nội dung
+      `"${c.phone}"`,
+      `"${c.cccd || ''}"`,
+      `"${c.dob || ''}"`,
+      `"${c.address || ''}"`,
+      `"${c.notes || ''}"`,
+      `"${c.customer_status}"`
+    ]);
+
+    // 3. Gộp thành chuỗi định dạng CSV
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    
+    // 4. Mã hóa UTF-8 (Thêm \uFEFF ở đầu để Excel nhận diện chuẩn tiếng Việt)
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    
+    // 5. Kích hoạt tải xuống
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Khach_Hang_NguyenTamAuto_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  };
+
+  // LOGIC TÌM KIẾM
   const filteredCustomers = customers.filter(c => 
-    c.full_name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (c.phone && c.phone.includes(searchTerm)) ||
-    (c.cccd && c.cccd.includes(searchTerm))
-  )
+    c.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.phone.includes(searchTerm) ||
+    c.cccd.includes(searchTerm)
+  );
+
+  // LOGIC PHÂN TRANG (PAGINATION)
+  const totalPages = Math.ceil(filteredCustomers.length / itemsPerPage);
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  // Cắt mảng dữ liệu chỉ lấy 10 người của trang hiện tại
+  const currentItems = filteredCustomers.slice(indexOfFirstItem, indexOfLastItem); 
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans">
-      
-      {/* Sidebar thu gọn */}
-      <aside className="w-20 bg-slate-900 text-white shadow-xl flex flex-col items-center py-6">
-        <Link href="/" className="mb-8 text-blue-400 font-bold text-xl">CRM</Link>
-        <Link href="/" className="p-3 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl mb-2" title="Dashboard">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
-        </Link>
-        <div className="p-3 bg-blue-600 text-white rounded-xl mb-2 shadow-lg" title="Khách hàng">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-        </div>
-      </aside>
+    <div className="p-8 bg-gray-50 min-h-screen">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-gray-800">Quản lý Khách Hàng</h1>
+        <p className="text-gray-500 mt-1">Lưu trữ, tìm kiếm và xuất báo cáo khách hàng</p>
+      </div>
 
-      <main className="flex-1 overflow-y-auto p-8">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">Quản lý Khách hàng</h1>
-            <p className="text-gray-500 text-sm mt-1">Lưu trữ thông tin và lịch sử giao dịch</p>
+      {/* FORM NHẬP / SỬA LIỆU */}
+      <div className={`bg-white rounded-xl shadow-sm border p-6 mb-8 transition-colors ${editingId ? 'border-blue-400 bg-blue-50' : 'border-gray-100'}`}>
+        <h2 className="text-lg font-bold text-gray-800 mb-4">{editingId ? `Đang chỉnh sửa: ${formData.full_name}` : 'Thêm Khách Hàng Mới'}</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div><label className="block text-sm font-medium mb-1">Họ Tên (*)</label><input required name="full_name" value={formData.full_name} onChange={handleInputChange} className="w-full p-2 border rounded" /></div>
+            <div><label className="block text-sm font-medium mb-1">Điện thoại (*)</label><input required name="phone" value={formData.phone} onChange={handleInputChange} className="w-full p-2 border rounded" /></div>
+            <div><label className="block text-sm font-medium mb-1">CCCD</label><input name="cccd" value={formData.cccd} onChange={handleInputChange} className="w-full p-2 border rounded" /></div>
+            <div><label className="block text-sm font-medium mb-1">Ngày sinh</label><input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className="w-full p-2 border rounded" /></div>
+            <div className="md:col-span-2"><label className="block text-sm font-medium mb-1">Địa chỉ</label><input name="address" value={formData.address} onChange={handleInputChange} className="w-full p-2 border rounded" /></div>
+            <div className="md:col-span-2"><label className="block text-sm font-medium mb-1">Lưu ý / Nhu cầu</label><textarea name="notes" value={formData.notes} onChange={handleInputChange} rows={2} className="w-full p-2 border rounded" /></div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Phân loại</label>
+              <select name="customer_status" value={formData.customer_status} onChange={handleInputChange} className="w-full p-2 border rounded bg-white">
+                <option value="Tiềm năng">Tiềm năng</option>
+                <option value="Đang chăm sóc">Đang chăm sóc</option>
+                <option value="Đã mua">Đã mua</option>
+              </select>
+            </div>
           </div>
+          <div className="flex justify-end gap-3 mt-4 pt-4 border-t">
+            {editingId && <button type="button" onClick={cancelEdit} className="px-5 py-2 border rounded hover:bg-gray-100">Hủy</button>}
+            <button type="submit" disabled={isSubmitting} className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">{isSubmitting ? 'Đang lưu...' : 'Lưu Thông Tin'}</button>
+          </div>
+        </form>
+      </div>
+
+      {/* BẢNG DỮ LIỆU & THANH CÔNG CỤ */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        
+        {/* Thanh công cụ (Tìm kiếm & Nút Xuất Excel) */}
+        <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between gap-4 items-center bg-gray-50">
+          <input 
+            type="text" 
+            placeholder="🔍 Tìm theo tên, SĐT hoặc CCCD..." 
+            className="w-full md:w-1/3 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
           <button 
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium transition shadow-sm flex items-center gap-2"
+            onClick={exportToExcel}
+            className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center justify-center gap-2 transition"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
-            {showAddForm ? 'Đóng form' : 'Thêm Khách hàng'}
+            <span>📥 Xuất file Excel</span>
           </button>
         </div>
 
-        {/* Form thêm khách hàng */}
-        {showAddForm && (
-          <form onSubmit={handleAddCustomer} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Họ và Tên *</label>
-              <input required type="text" name="full_name" value={formData.full_name} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-200 focus:border-blue-500" placeholder="Nguyễn Văn A" />
+        <div className="overflow-x-auto min-h-[400px]">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-white text-gray-500 text-sm uppercase tracking-wider border-b border-gray-200">
+                <th className="px-6 py-4 font-medium">Khách hàng</th>
+                <th className="px-6 py-4 font-medium">Liên hệ</th>
+                <th className="px-6 py-4 font-medium">Nhu cầu</th>
+                <th className="px-6 py-4 font-medium text-center">Trạng thái</th>
+                <th className="px-6 py-4 font-medium text-right">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {loading ? (
+                <tr><td colSpan={5} className="text-center py-8 text-gray-500">Đang tải dữ liệu...</td></tr>
+              ) : currentItems.length === 0 ? (
+                <tr><td colSpan={5} className="text-center py-8 text-gray-400">Không tìm thấy khách hàng.</td></tr>
+              ) : (
+                currentItems.map((customer) => (
+                  <tr key={customer.id} className="hover:bg-gray-50 transition">
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-gray-900">{customer.full_name}</div>
+                      <div className="text-xs text-gray-500">CCCD: {customer.cccd || '-'}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="font-medium text-blue-600">{customer.phone}</div>
+                      <div className="text-xs text-gray-500 truncate w-40" title={customer.address}>{customer.address || '-'}</div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-700">
+                      <div className="truncate w-40" title={customer.notes}>{customer.notes || '-'}</div>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border">
+                        {customer.customer_status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right text-sm font-medium">
+                      <button onClick={() => handleEditClick(customer)} className="text-orange-500 hover:text-orange-700 mr-4">Sửa</button>
+                      <button onClick={() => handleDelete(customer.id, customer.full_name)} className="text-red-500 hover:text-red-700">Xóa</button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ĐIỀU HƯỚNG PHÂN TRANG */}
+        {!loading && filteredCustomers.length > 0 && (
+          <div className="p-4 border-t border-gray-100 flex items-center justify-between bg-gray-50">
+            <div className="text-sm text-gray-500">
+              Đang hiển thị <strong>{indexOfFirstItem + 1}</strong> - <strong>{Math.min(indexOfLastItem, filteredCustomers.length)}</strong> trong tổng số <strong>{filteredCustomers.length}</strong> khách hàng
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Số điện thoại *</label>
-              <input required type="tel" name="phone" value={formData.phone} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-200 focus:border-blue-500" placeholder="0901234567" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Số CCCD</label>
-              <input type="text" name="cccd" value={formData.cccd} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-200 focus:border-blue-500" placeholder="0123456789" />
-            </div>
-            <div className="lg:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Địa chỉ</label>
-              <input type="text" name="address" value={formData.address} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-200 focus:border-blue-500" placeholder="Số nhà, Đường, Quận/Huyện, Tỉnh/TP" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Phân loại</label>
-              <select name="customer_status" value={formData.customer_status} onChange={handleInputChange} className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-200 focus:border-blue-500">
-                <option value="Tiềm năng">Tiềm năng</option>
-                <option value="Đang thương lượng">Đang thương lượng</option>
-                <option value="Đã chốt">Đã chốt</option>
-              </select>
-            </div>
-            <div className="lg:col-span-3">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Lưu ý (Sở thích, nhu cầu đặc biệt...)</label>
-              <textarea name="notes" value={formData.notes} onChange={handleInputChange} rows={2} className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-200 focus:border-blue-500" placeholder="Khách hàng đang cần tìm xe tải 8 tấn, tài chính khoảng 500 triệu..."></textarea>
-            </div>
-            <div className="md:col-span-2 lg:col-span-3 flex justify-end">
-              <button type="submit" className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium transition shadow-sm">
-                Lưu thông tin
+            
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 border rounded bg-white text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Trước
+              </button>
+              
+              <div className="px-3 py-1 bg-blue-50 text-blue-600 font-medium rounded border border-blue-100">
+                {currentPage} / {totalPages}
+              </div>
+              
+              <button 
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1 border rounded bg-white text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Sau
               </button>
             </div>
-          </form>
-        )}
-
-        {/* Thanh tìm kiếm */}
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex items-center gap-3">
-          <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-          <input 
-            type="text" 
-            placeholder="Tìm kiếm theo tên, số điện thoại hoặc CCCD..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full focus:outline-none text-gray-700"
-          />
-        </div>
-
-        {/* Bảng danh sách */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-gray-600">
-              <thead className="bg-gray-50 text-gray-500 font-medium whitespace-nowrap">
-                <tr>
-                  <th className="px-6 py-4 border-b">Họ và Tên</th>
-                  <th className="px-6 py-4 border-b">SĐT</th>
-                  <th className="px-6 py-4 border-b">Trạng thái</th>
-                  <th className="px-6 py-4 border-b">Lưu ý</th>
-                  <th className="px-6 py-4 border-b">CCCD</th>
-                  <th className="px-6 py-4 border-b">Địa chỉ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {loading ? (
-                  <tr><td colSpan={6} className="text-center py-8">Đang tải dữ liệu...</td></tr>
-                ) : filteredCustomers.length === 0 ? (
-                  <tr><td colSpan={6} className="text-center py-8 text-gray-400">Không tìm thấy khách hàng nào.</td></tr>
-                ) : (
-                  filteredCustomers.map((customer) => (
-                    <tr key={customer.id} className="hover:bg-gray-50 transition">
-                      <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{customer.full_name}</td>
-                      <td className="px-6 py-4 font-medium text-blue-600 whitespace-nowrap">{customer.phone || '---'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium 
-                          ${customer.customer_status === 'Đã chốt' ? 'bg-green-100 text-green-700' : 
-                            customer.customer_status === 'Đang thương lượng' ? 'bg-orange-100 text-orange-700' : 
-                            'bg-blue-100 text-blue-700'}`}>
-                          {customer.customer_status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 max-w-xs truncate" title={customer.notes}>{customer.notes || '---'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">{customer.cccd || '---'}</td>
-                      <td className="px-6 py-4 max-w-xs truncate" title={customer.address}>{customer.address || '---'}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
           </div>
-        </div>
-      </main>
+        )}
+        
+      </div>
     </div>
-  )
+  );
 }

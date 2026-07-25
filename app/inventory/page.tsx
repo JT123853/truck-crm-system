@@ -4,30 +4,24 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/utils/supabase/client';
 
 export default function InventoryPage() {
-  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // TÌM KIẾM & PHÂN TRANG
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // Trạng thái quản lý Modal thêm xe mới
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  // QUẢN LÝ FORM (THÊM / SỬA)
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // State lưu trữ dữ liệu form
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
-    license_plate: '',
-    brand: '',
-    year: '',
-    color: '',
-    mileage: '',
-    condition_engine: '',
-    condition_chassis: '',
-    accident_history: '',
-    purchase_price: '',
-    repair_cost: '',
-    status: 'Sẵn sàng bán'
+    brand: '', license_plate: '', vin: '', import_date: '',
+    purchase_price: '', repair_cost: '', expected_price: '',
+    status: 'Có sẵn', notes: ''
   });
 
-  // Hàm tải dữ liệu
   async function fetchInventory() {
     setLoading(true);
     try {
@@ -37,9 +31,9 @@ export default function InventoryPage() {
         .order('created_at', { ascending: false });
         
       if (error) throw error;
-      if (data) setVehicles(data);
+      if (data) setInventory(data);
     } catch (error) {
-      console.error('Lỗi tải dữ liệu xe:', error);
+      console.error('Lỗi tải dữ liệu kho:', error);
     } finally {
       setLoading(false);
     }
@@ -49,204 +43,269 @@ export default function InventoryPage() {
     fetchInventory();
   }, []);
 
-  // Xử lý thay đổi input
+  // Đưa về trang 1 khi gõ tìm kiếm
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // Hàm gửi dữ liệu lên Supabase
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    try {
-      const { data, error } = await supabase
-        .from('inventory')
-        .insert([
-          {
-            license_plate: formData.license_plate,
-            brand: formData.brand,
-            year: formData.year ? parseInt(formData.year) : null,
-            color: formData.color,
-            mileage: formData.mileage ? parseInt(formData.mileage) : null,
-            condition_engine: formData.condition_engine,
-            condition_chassis: formData.condition_chassis,
-            accident_history: formData.accident_history,
-            purchase_price: formData.purchase_price ? parseInt(formData.purchase_price) : 0,
-            repair_cost: formData.repair_cost ? parseInt(formData.repair_cost) : 0,
-            status: formData.status
-          }
-        ]);
+    
+    // Xử lý chuyển đổi chuỗi sang số tiền
+    const payload = {
+      brand: formData.brand,
+      license_plate: formData.license_plate,
+      vin: formData.vin,
+      import_date: formData.import_date || null,
+      purchase_price: formData.purchase_price ? Number(formData.purchase_price) : 0,
+      repair_cost: formData.repair_cost ? Number(formData.repair_cost) : 0,
+      expected_price: formData.expected_price ? Number(formData.expected_price) : 0,
+      status: formData.status,
+      notes: formData.notes
+    };
 
-      if (error) throw error;
-      
-      // Đóng modal, reset form và tải lại bảng
-      setIsModalOpen(false);
-      setFormData({
-        license_plate: '', brand: '', year: '', color: '', mileage: '',
-        condition_engine: '', condition_chassis: '', accident_history: '',
-        purchase_price: '', repair_cost: '', status: 'Sẵn sàng bán'
-      });
+    try {
+      if (editingId) {
+        const { error } = await supabase.from('inventory').update(payload).eq('id', editingId);
+        if (error) throw error;
+        alert('Cập nhật thông tin xe thành công!');
+      } else {
+        const { error } = await supabase.from('inventory').insert([payload]);
+        if (error) throw error;
+        alert('Đã nhập xe mới vào kho thành công!');
+      }
+      cancelEdit();
       fetchInventory();
-      alert('Nhập xe mới thành công!');
     } catch (error: any) {
-      console.error('Lỗi thêm xe:', error);
-      alert('Có lỗi xảy ra: ' + error.message);
+      alert('Lỗi: ' + error.message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount || 0);
+  const handleEditClick = (car: any) => {
+    setEditingId(car.id);
+    setFormData({
+      brand: car.brand || '',
+      license_plate: car.license_plate || '',
+      vin: car.vin || '',
+      import_date: car.import_date || '',
+      purchase_price: car.purchase_price ? car.purchase_price.toString() : '',
+      repair_cost: car.repair_cost ? car.repair_cost.toString() : '0',
+      expected_price: car.expected_price ? car.expected_price.toString() : '',
+      status: car.status || 'Có sẵn',
+      notes: car.notes || ''
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const filteredVehicles = vehicles.filter(v => 
-    v.license_plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    v.brand.toLowerCase().includes(searchTerm.toLowerCase())
+  const cancelEdit = () => {
+    setEditingId(null);
+    setFormData({
+      brand: '', license_plate: '', vin: '', import_date: '',
+      purchase_price: '', repair_cost: '', expected_price: '',
+      status: 'Có sẵn', notes: ''
+    });
+  };
+
+  const handleDelete = async (id: string, plate: string) => {
+    if (!window.confirm(`Xóa xe biển số "${plate}" khỏi kho?`)) return;
+    try {
+      const { error } = await supabase.from('inventory').delete().eq('id', id);
+      if (error) {
+        // Mã 23503 là lỗi vướng khóa ngoại (Foreign Key Constraint)
+        if (error.code === '23503') throw new Error('Xe này đã nằm trong Hợp đồng bán hàng hoặc có Chi phí sửa chữa liên kết. Không thể xóa!');
+        throw error;
+      }
+      fetchInventory();
+    } catch (error: any) {
+      alert(error.message);
+    }
+  };
+
+  const exportToExcel = () => {
+    const headers = ['Dòng xe', 'Biển số', 'Số khung (VIN)', 'Ngày nhập', 'Giá vốn (Giá mua)', 'Chi phí dọn/sửa', 'Giá bán dự kiến', 'Trạng thái', 'Ghi chú'];
+    const rows = filteredInventory.map(c => [
+      `"${c.brand}"`,
+      `"${c.license_plate}"`,
+      `"${c.vin || ''}"`,
+      `"${c.import_date || ''}"`,
+      `"${c.purchase_price || 0}"`,
+      `"${c.repair_cost || 0}"`,
+      `"${c.expected_price || 0}"`,
+      `"${c.status}"`,
+      `"${c.notes || ''}"`
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `Ton_Kho_NguyenTamAuto_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  };
+
+  const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount || 0);
+
+  // LOGIC TÌM KIẾM (Bao gồm Biển số, Số khung và Tên xe)
+  const filteredInventory = inventory.filter(c => 
+    c.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.license_plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (c.vin && c.vin.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  // LOGIC PHÂN TRANG
+  const totalPages = Math.ceil(filteredInventory.length / itemsPerPage);
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentItems = filteredInventory.slice(indexOfFirstItem, indexOfLastItem); 
 
   return (
     <div className="p-8 bg-gray-50 min-h-screen">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-2xl font-bold text-gray-800">Quản lý Tồn kho Xe</h1>
-        <div className="flex gap-4">
-          <button className="bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-100 transition font-medium">
-            Quản lý Phụ tùng / Xăng nhớt
-          </button>
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition font-medium shadow-sm"
-          >
-            + Nhập xe mới
-          </button>
-        </div>
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-gray-800">Quản lý Tồn Kho Xe</h1>
+        <p className="text-gray-500 mt-1">Kiểm soát danh mục xe, chi phí sửa chữa và định giá bán</p>
       </div>
 
-      {/* Bảng Dữ Liệu */}
+      {/* FORM NHẬP / SỬA LIỆU */}
+      <div className={`bg-white rounded-xl shadow-sm border p-6 mb-8 transition-colors ${editingId ? 'border-blue-400 bg-blue-50' : 'border-gray-100'}`}>
+        <h2 className="text-lg font-bold text-gray-800 mb-4">{editingId ? `Đang chỉnh sửa xe: ${formData.license_plate}` : 'Nhập Xe Mới Vào Kho'}</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div><label className="block text-sm font-medium mb-1">Dòng xe / Đời xe (*)</label><input required name="brand" value={formData.brand} onChange={handleInputChange} className="w-full p-2 border rounded" placeholder="VD: Hyundai H150 2020" /></div>
+            <div><label className="block text-sm font-medium mb-1">Biển số (*)</label><input required name="license_plate" value={formData.license_plate} onChange={handleInputChange} className="w-full p-2 border rounded" placeholder="VD: 51C-123.45" /></div>
+            <div><label className="block text-sm font-medium mb-1">Số khung (VIN)</label><input name="vin" value={formData.vin} onChange={handleInputChange} className="w-full p-2 border rounded" /></div>
+            
+            <div><label className="block text-sm font-medium mb-1">Ngày nhập kho</label><input type="date" name="import_date" value={formData.import_date} onChange={handleInputChange} className="w-full p-2 border rounded" /></div>
+            <div><label className="block text-sm font-medium mb-1">Trạng thái</label>
+              <select name="status" value={formData.status} onChange={handleInputChange} className="w-full p-2 border rounded bg-white">
+                <option value="Có sẵn">Có sẵn trong bãi</option>
+                <option value="Đang dọn">Đang dọn/Sửa chữa</option>
+                <option value="Đã nhận cọc">Đã nhận cọc</option>
+                <option value="Đã bán">Đã bán</option>
+              </select>
+            </div>
+            <div><label className="block text-sm font-medium mb-1">Giá nhập mua (VNĐ)</label><input type="number" name="purchase_price" value={formData.purchase_price} onChange={handleInputChange} className="w-full p-2 border rounded" /></div>
+            
+            <div><label className="block text-sm font-medium mb-1">Giá bán dự kiến (VNĐ)</label><input type="number" name="expected_price" value={formData.expected_price} onChange={handleInputChange} className="w-full p-2 border rounded" /></div>
+            <div className="md:col-span-2"><label className="block text-sm font-medium mb-1">Tình trạng / Ghi chú</label><input name="notes" value={formData.notes} onChange={handleInputChange} className="w-full p-2 border rounded" placeholder="Ví dụ: Cần sơn lại cản trước, thay lốp..." /></div>
+          </div>
+          <div className="flex justify-end gap-3 mt-4 pt-4 border-t">
+            {editingId && <button type="button" onClick={cancelEdit} className="px-5 py-2 border rounded hover:bg-gray-100">Hủy</button>}
+            <button type="submit" disabled={isSubmitting} className={`px-6 py-2 text-white rounded font-medium transition ${editingId ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+              {isSubmitting ? 'Đang lưu...' : 'Lưu Thông Tin'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* BẢNG DỮ LIỆU & THANH CÔNG CỤ */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 border-b border-gray-100">
+        
+        <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between gap-4 items-center bg-gray-50">
           <input 
             type="text" 
-            placeholder="Tìm kiếm theo biển số hoặc hãng xe..." 
-            className="w-full md:w-1/3 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="🔍 Tìm theo Tên xe, Biển số hoặc Số khung (VIN)..." 
+            className="w-full md:w-1/2 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+          <button onClick={exportToExcel} className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center justify-center gap-2 transition">
+            <span>📥 Xuất file Excel</span>
+          </button>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto min-h-[400px]">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-gray-50 text-gray-500 text-sm uppercase tracking-wider">
-                <th className="px-6 py-4 font-medium border-b border-gray-200">Biển số / Xe</th>
-                <th className="px-6 py-4 font-medium border-b border-gray-200">Tình trạng</th>
-                <th className="px-6 py-4 font-medium border-b border-gray-200 text-right">Giá vốn tổng</th>
-                <th className="px-6 py-4 font-medium border-b border-gray-200 text-center">Trạng thái</th>
-                <th className="px-6 py-4 font-medium border-b border-gray-200 text-right">Thao tác</th>
+              <tr className="bg-white text-gray-500 text-sm uppercase tracking-wider border-b border-gray-200">
+                <th className="px-6 py-4 font-medium">Xe & Đăng ký</th>
+                <th className="px-6 py-4 font-medium">Tài chính (VNĐ)</th>
+                <th className="px-6 py-4 font-medium">Ghi chú</th>
+                <th className="px-6 py-4 font-medium text-center">Trạng thái</th>
+                <th className="px-6 py-4 font-medium text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr><td colSpan={5} className="text-center py-8 text-gray-500">Đang tải dữ liệu...</td></tr>
-              ) : filteredVehicles.length === 0 ? (
-                <tr><td colSpan={5} className="text-center py-8 text-gray-400">Chưa có dữ liệu xe tồn kho.</td></tr>
+              ) : currentItems.length === 0 ? (
+                <tr><td colSpan={5} className="text-center py-8 text-gray-400">Không tìm thấy xe trong kho.</td></tr>
               ) : (
-                filteredVehicles.map((vehicle) => {
-                  const totalCost = Number(vehicle.purchase_price) + Number(vehicle.repair_cost || 0);
-                  return (
-                    <tr key={vehicle.id} className="hover:bg-gray-50 transition">
-                      <td className="px-6 py-4">
-                        <div className="font-bold text-gray-900">{vehicle.license_plate}</div>
-                        <div className="text-sm text-gray-500">{vehicle.brand} - {vehicle.year || 'N/A'} ({vehicle.color})</div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-700">
-                        <div><span className="font-medium">Odo:</span> {vehicle.mileage?.toLocaleString('vi-VN')} km</div>
-                        <div><span className="font-medium">Máy:</span> {vehicle.condition_engine}</div>
-                        <div className="truncate w-48" title={vehicle.accident_history}>
-                          <span className="font-medium">Lịch sử:</span> {vehicle.accident_history}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="font-bold text-red-600">{formatCurrency(totalCost)}</div>
-                        <div className="text-xs text-gray-500">
-                          Mua: {formatCurrency(vehicle.purchase_price).replace('₫', '')} | Sửa: {formatCurrency(vehicle.repair_cost).replace('₫', '')}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium 
-                          ${vehicle.status === 'Sẵn sàng bán' ? 'bg-green-100 text-green-700' : 
-                            vehicle.status === 'Đang thanh toán' ? 'bg-blue-100 text-blue-700' : 
-                            'bg-orange-100 text-orange-700'}`}>
-                          {vehicle.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right text-sm font-medium">
-                        <button className="text-blue-600 hover:text-blue-900">Sửa</button>
-                      </td>
-                    </tr>
-                  )
-                })
+                currentItems.map((car) => (
+                  <tr key={car.id} className="hover:bg-gray-50 transition">
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-gray-900 text-base">{car.brand}</div>
+                      <div className="text-sm font-medium text-blue-600 mt-1">{car.license_plate}</div>
+                      <div className="text-xs text-gray-500">VIN: {car.vin || '-'}</div>
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      <div className="text-gray-500">Vốn nhập: <span className="text-gray-900 font-medium">{formatCurrency(car.purchase_price)}</span></div>
+                      <div className="text-gray-500">Chi phí dọn: <span className="text-red-500 font-medium">+{formatCurrency(car.repair_cost)}</span></div>
+                      <div className="mt-1 pt-1 border-t border-gray-100 text-gray-500">
+                        Dự kiến bán: <span className="text-green-600 font-bold">{formatCurrency(car.expected_price)}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-700">
+                      <div className="truncate w-40" title={car.notes}>{car.notes || '-'}</div>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium border
+                        ${car.status === 'Có sẵn' ? 'bg-green-50 text-green-700 border-green-200' : 
+                          car.status === 'Đang dọn' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                          car.status === 'Đã nhận cọc' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                          'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                        {car.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right text-sm font-medium">
+                      <button onClick={() => handleEditClick(car)} className="text-orange-500 hover:text-orange-700 mr-4">Sửa</button>
+                      <button onClick={() => handleDelete(car.id, car.license_plate)} className="text-red-500 hover:text-red-700">Xóa</button>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
-      </div>
 
-      {/* Modal Thêm Xe Mới */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg w-full max-w-3xl overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h2 className="text-xl font-bold text-gray-800">Nhập Thông Tin Xe Mới</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-gray-500 hover:text-gray-700 font-bold text-xl">&times;</button>
+        {/* ĐIỀU HƯỚNG PHÂN TRANG */}
+        {!loading && filteredInventory.length > 0 && (
+          <div className="p-4 border-t border-gray-100 flex items-center justify-between bg-gray-50">
+            <div className="text-sm text-gray-500">
+              Đang hiển thị <strong>{indexOfFirstItem + 1}</strong> - <strong>{Math.min(indexOfLastItem, filteredInventory.length)}</strong> trong tổng số <strong>{filteredInventory.length}</strong> xe
             </div>
             
-            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Thông tin cơ bản */}
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Biển số (*)</label>
-                  <input required name="license_plate" value={formData.license_plate} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500" placeholder="VD: 29H-123.45" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Hãng xe</label>
-                  <input name="brand" value={formData.brand} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded" placeholder="VD: Hyundai, Isuzu" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Năm sản xuất</label>
-                  <input type="number" name="year" value={formData.year} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Màu sắc</label>
-                  <input name="color" value={formData.color} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded" /></div>
-                
-                {/* Thông tin tình trạng */}
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Số Km đã đi (Odo)</label>
-                  <input type="number" name="mileage" value={formData.mileage} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Tình trạng máy</label>
-                  <input name="condition_engine" value={formData.condition_engine} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded" /></div>
-                <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Tình trạng khung gầm / Lịch sử đâm đụng</label>
-                  <textarea name="accident_history" value={formData.accident_history} onChange={handleInputChange} rows={2} className="w-full p-2 border border-gray-300 rounded" placeholder="Mô tả chi tiết tình trạng..." /></div>
-                
-                {/* Thông tin tài chính */}
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Giá Mua Vào (VNĐ) (*)</label>
-                  <input type="number" required name="purchase_price" value={formData.purchase_price} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Chi phí Dọn / Sửa chữa (VNĐ)</label>
-                  <input type="number" name="repair_cost" value={formData.repair_cost} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded" /></div>
-                
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Trạng thái hiện tại</label>
-                  <select name="status" value={formData.status} onChange={handleInputChange} className="w-full p-2 border border-gray-300 rounded bg-white">
-                    <option value="Sẵn sàng bán">Sẵn sàng bán</option>
-                    <option value="Đang dọn">Đang dọn / Sửa chữa</option>
-                    <option value="Đã cọc">Đã nhận cọc</option>
-                  </select>
-                </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 border rounded bg-white text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Trước
+              </button>
+              
+              <div className="px-3 py-1 bg-blue-50 text-blue-600 font-medium rounded border border-blue-100">
+                {currentPage} / {totalPages}
               </div>
-
-              <div className="mt-8 flex justify-end gap-3 pt-4 border-t border-gray-100">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50">Hủy bỏ</button>
-                <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
-                  {isSubmitting ? 'Đang lưu...' : 'Lưu Thông Tin Xe'}
-                </button>
-              </div>
-            </form>
+              
+              <button 
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1 border rounded bg-white text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              >
+                Sau
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+        
+      </div>
     </div>
   );
 }
