@@ -6,21 +6,19 @@ import { supabase } from '@/utils/supabase/client';
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState({
     totalRevenue: 0,
-    cogs: 0, // Giá vốn hàng bán (Chi phí mua + sửa xe đã bán)
-    opex: 0, // Chi phí vận hành
-    pendingCashInflow: 0, // Dòng tiền chờ thu
+    cogs: 0, 
+    opex: 0, 
+    pendingCashInflow: 0, 
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchFinancials() {
       try {
-        // 1. Kéo Sales (Chỉ lấy giao dịch Hoàn tất và Đang thanh toán)
         const { data: salesData } = await supabase
           .from('sales')
           .select('sale_price, payment_1_amount, payment_2_amount, sale_status, inventory(purchase_price, repair_cost)');
 
-        // 2. Kéo OPEX (Chỉ lấy chi phí không gắn với xe để tính OPEX chung)
         const { data: expensesData } = await supabase
           .from('expenses')
           .select('amount')
@@ -30,13 +28,17 @@ export default function DashboardPage() {
         let cogsCost = 0;
         let cashInflow = 0;
 
-        salesData?.forEach(sale => {
-          // Tính Doanh thu thực tế (Chỉ từ Hợp đồng hoàn tất)
+        salesData?.forEach((sale: any) => {
           if (sale.sale_status === 'Hoàn tất') {
             rev += Number(sale.sale_price);
-            cogsCost += (Number(sale.inventory?.purchase_price || 0) + Number(sale.inventory?.repair_cost || 0));
+            
+            // Xử lý an toàn nếu inventory là mảng hoặc object
+            const inv = Array.isArray(sale.inventory) ? sale.inventory[0] : sale.inventory;
+            if (inv) {
+              cogsCost += (Number(inv.purchase_price || 0) + Number(inv.repair_cost || 0));
+            }
           } 
-          // Tính Công nợ chờ thu
+          
           if (sale.sale_status === 'Đang thanh toán') {
             cashInflow += (Number(sale.sale_price) - Number(sale.payment_1_amount) - Number(sale.payment_2_amount));
           }
@@ -76,26 +78,22 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {/* Doanh thu ghi nhận */}
         <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-blue-500">
           <div className="text-sm font-medium text-gray-500 mb-1">Doanh Thu Thuần (Đã chốt)</div>
           <div className="text-2xl font-bold text-gray-900">{formatCurrency(metrics.totalRevenue)}</div>
         </div>
 
-        {/* Lợi nhuận gộp */}
         <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-green-500">
           <div className="text-sm font-medium text-gray-500 mb-1">Lợi Nhuận Gộp (Gross Profit)</div>
           <div className="text-2xl font-bold text-green-600">{formatCurrency(grossProfit)}</div>
           <div className="text-sm text-gray-500 mt-1">Biên lợi nhuận: <strong>{grossMarginPercentage}%</strong></div>
         </div>
 
-        {/* Chi phí OPEX */}
         <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-red-500">
           <div className="text-sm font-medium text-gray-500 mb-1">Chi Phí Vận Hành (OPEX)</div>
           <div className="text-2xl font-bold text-red-500">-{formatCurrency(metrics.opex)}</div>
         </div>
 
-        {/* Lợi nhuận thuần vận hành */}
         <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-purple-500">
           <div className="text-sm font-medium text-gray-500 mb-1">Lợi Nhuận Thuần (NOI)</div>
           <div className="text-2xl font-bold text-purple-600">{formatCurrency(netOperatingIncome)}</div>
