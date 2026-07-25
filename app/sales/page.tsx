@@ -180,6 +180,76 @@ export default function SalesPage() {
 
   const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount || 0);
 
+  // LOGIC IN HỢP ĐỒNG
+  const handlePrint = (sale: any) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Vui lòng cho phép trình duyệt mở tab mới (Pop-up) để in!');
+      return;
+    }
+
+    const totalPaid = Number(sale.payment_1_amount) + Number(sale.payment_2_amount);
+    const remaining = Number(sale.sale_price) - totalPaid;
+
+    const htmlContent = `
+      <html>
+        <head>
+          <title>Hợp Đồng - ${sale.customers?.full_name}</title>
+          <style>
+            body { font-family: 'Times New Roman', serif; padding: 40px; color: #000; line-height: 1.6; }
+            .header { text-align: center; margin-bottom: 30px; }
+            .company { font-size: 24px; font-weight: bold; }
+            .title { font-size: 22px; font-weight: bold; text-align: center; margin: 20px 0; }
+            .section-title { font-weight: bold; font-size: 16px; margin-top: 20px; text-decoration: underline; }
+            .row { display: flex; margin-bottom: 8px; }
+            .label { width: 200px; }
+            .value { font-weight: bold; }
+            .footer { display: flex; justify-content: space-between; margin-top: 50px; text-align: center; }
+            .signature { width: 45%; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="company">SHOWROOM NGUYỄN TÂM AUTO</div>
+            <div>Hệ thống mua bán xe tải, xe du lịch uy tín</div>
+          </div>
+          
+          <div class="title">HỢP ĐỒNG MUA BÁN XE</div>
+          
+          <div class="section-title">BÊN A (BÊN BÁN): NGUYỄN TÂM AUTO</div>
+          
+          <div class="section-title">BÊN B (BÊN MUA):</div>
+          <div class="row"><div class="label">Họ và tên:</div><div class="value">${sale.customers?.full_name || ''}</div></div>
+          <div class="row"><div class="label">Số điện thoại:</div><div class="value">${sale.customers?.phone || ''}</div></div>
+          
+          <div class="section-title">THÔNG TIN XE MUA BÁN:</div>
+          <div class="row"><div class="label">Loại xe:</div><div class="value">${sale.inventory?.brand || ''}</div></div>
+          <div class="row"><div class="label">Biển số:</div><div class="value">${sale.inventory?.license_plate || ''}</div></div>
+
+          <div class="section-title">ĐIỀU KHOẢN THANH TOÁN:</div>
+          <div class="row"><div class="label">Tổng giá trị hợp đồng:</div><div class="value">${formatCurrency(sale.sale_price)}</div></div>
+          <div class="row"><div class="label">Đã thanh toán:</div><div class="value">${formatCurrency(totalPaid)}</div></div>
+          <div class="row"><div class="label">Số tiền còn lại:</div><div class="value">${formatCurrency(remaining)}</div></div>
+          <div class="row"><div class="label">Ghi chú:</div><div>${sale.notes || 'Không có'}</div></div>
+
+          <div class="footer">
+            <div class="signature">
+              <b>ĐẠI DIỆN BÊN MUA</b><br><i>(Ký và ghi rõ họ tên)</i><br><br><br><br>
+            </div>
+            <div class="signature">
+              <b>ĐẠI DIỆN BÊN BÁN</b><br><i>(Ký và ghi rõ họ tên)</i><br><br><br><br>
+            </div>
+          </div>
+          <script>
+            window.onload = function() { window.print(); window.close(); }
+          </script>
+        </body>
+      </html>
+    `;
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   // LOGIC TÌM KIẾM (Tìm theo Tên khách, Số điện thoại hoặc Biển số xe)
   const filteredSales = sales.filter(s => {
     const term = searchTerm.toLowerCase();
@@ -198,7 +268,7 @@ export default function SalesPage() {
     <div className="p-8 bg-gray-50 min-h-screen">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-800">Quản lý Hợp Đồng & Bán Hàng</h1>
-        <p className="text-gray-500 mt-1">Theo dõi tiến độ thanh toán và chốt giao dịch xe</p>
+        <p className="text-gray-500 mt-1">Theo dõi tiến độ thanh toán, chốt giao dịch xe và in hợp đồng</p>
       </div>
 
       {/* FORM NHẬP / SỬA LIỆU */}
@@ -207,7 +277,6 @@ export default function SalesPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             
-            {/* Nếu muốn thêm hoặc xóa trường dữ liệu, bạn chỉnh sửa các thẻ <input> ở khu vực này */}
             <div className="lg:col-span-2">
               <label className="block text-sm font-medium mb-1">Khách hàng (*)</label>
               <select required name="customer_id" value={formData.customer_id} onChange={handleInputChange} className="w-full p-2 border rounded bg-white">
@@ -326,8 +395,15 @@ export default function SalesPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right text-sm font-medium">
-                      <button onClick={() => handleEditClick(sale)} className="text-orange-500 hover:text-orange-700 mr-4">Sửa</button>
-                      <button onClick={() => handleDelete(sale.id)} className="text-red-500 hover:text-red-700">Xóa</button>
+                      <button onClick={() => handlePrint(sale)} className="text-blue-600 hover:text-blue-800 mr-4 font-bold">
+                        🖨️ In
+                      </button>
+                      <button onClick={() => handleEditClick(sale)} className="text-orange-500 hover:text-orange-700 mr-4">
+                        Sửa
+                      </button>
+                      <button onClick={() => handleDelete(sale.id)} className="text-red-500 hover:text-red-700">
+                        Xóa
+                      </button>
                     </td>
                   </tr>
                   );
